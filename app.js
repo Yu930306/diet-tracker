@@ -37,7 +37,8 @@
   ];
 
   var sb = null;
-  var room = localStorage.getItem('dt_room') || '';
+  var DEFAULT_ROOM = 'reconet2026';
+  var room = localStorage.getItem('dt_room') || DEFAULT_ROOM;
   var state = { profileId: 'person1', date: todayStr(), tab: 'record', weekStart: weekStartOf(todayStr()) };
   var cache = { plans: {}, foods: {}, photos: {}, checkins: {} };
 
@@ -70,6 +71,13 @@
   function setStatus(msg, isErr) {
     var s = el('status'); s.textContent = msg || ''; s.className = isErr ? 'err' : '';
   }
+  function errMsg(e) {
+    if (!e) return '未知错误';
+    if (typeof e === 'string') return e;
+    if (e.message) return e.message;
+    if (e.msg) return e.msg;
+    try { var j = JSON.stringify(e); return j && j !== '{}' ? j : String(e); } catch (_) { return String(e); }
+  }
 
   function init() {
     if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || CFG.SUPABASE_ANON_KEY === 'PASTE_ANON_KEY_HERE') {
@@ -79,7 +87,9 @@
     }
     bindChrome();
     renderCountdown();
-    if (!room) { el('roomGate').classList.remove('hidden'); return; }
+    // 默认房间码 reconet2026：打开直接进，不用每次输房间码。
+    // 第一次打开就存下来，两部手机都用同一个默认码。
+    localStorage.setItem('dt_room', room);
     enterRoom(room);
   }
 
@@ -93,9 +103,15 @@
         el('tab-record').classList.toggle('hidden', state.tab !== 'record');
         el('tab-weekly').classList.toggle('hidden', state.tab !== 'weekly');
         el('tab-time').classList.toggle('hidden', state.tab !== 'time');
+        if (state.tab === 'record') loadAll();
         if (state.tab === 'weekly') loadWeekly();
         if (state.tab === 'time') renderCountdown();
       });
+    });
+    el('changeRoomBtn').addEventListener('click', function () {
+      el('roomGate').classList.remove('hidden');
+      el('roomInput').value = room;
+      el('roomInput').focus();
     });
     el('roomEnter').addEventListener('click', function () {
       var v = el('roomInput').value.trim();
@@ -170,18 +186,20 @@
     el('roomGate').classList.add('hidden');
     if (!sb) { setStatus('还没有填 Supabase anon key，数据无法同步。', true); return; }
     setStatus('正在同步房间 ' + r + ' …');
+    // 初始化失败也不卡住记录页：档案/食谱初始化各跑各的，失败只报一声，
+    // 最后一定跑 loadAll，让餐卡和日期先显示出来。
+    try { await ensureProfiles(); } catch (e) { setStatus('档案同步失败：' + errMsg(e), true); }
+    try { await loadProfiles(); } catch (e) { /* 用默认档案1继续 */ }
+    try { await ensureSeeded(); } catch (e) { setStatus('食谱初始化失败：' + errMsg(e), true); }
     try {
-      await ensureProfiles();
-      await loadProfiles();
-      await ensureSeeded();
       subscribeRealtime();
       setInterval(loadAll, 30000);
       document.addEventListener('visibilitychange', function () { if (!document.hidden) loadAll(); });
       setStatus('已连接 · 房间 ' + r + ' · 两部手机输同一个码就能同步');
-      loadAll();
     } catch (e) {
-      setStatus('同步失败：' + (e && e.message ? e.message : e), true);
+      setStatus('同步失败：' + errMsg(e), true);
     }
+    loadAll();
   }
 
   async function ensureProfiles() {
@@ -237,7 +255,7 @@
       renderMeals();
       setStatus('已连接 · 房间 ' + room + ' · ' + dateLabel(day));
     } catch (e) {
-      setStatus('同步失败：' + (e && e.message ? e.message : e), true);
+      setStatus('同步失败：' + errMsg(e), true);
     }
   }
 
@@ -355,7 +373,7 @@
       setStatus('照片已上传');
       loadAll();
     } catch (e) {
-      setStatus('照片上传失败：' + (e && e.message ? e.message : e), true);
+      setStatus('照片上传失败：' + errMsg(e), true);
     }
   }
   function fileToImage(file) {
@@ -408,7 +426,7 @@
         el('currentWeight').textContent = '最近一周还没有体重记录';
       }
     } catch (e) {
-      setStatus('周总结加载失败：' + (e && e.message ? e.message : e), true);
+      setStatus('周总结加载失败：' + errMsg(e), true);
     }
   }
   function weekNo(ws) {

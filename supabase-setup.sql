@@ -89,6 +89,16 @@ create index if not exists idx_checkins_room_date on public.checkins (room_code,
 create index if not exists idx_weight_room on public.weight_records (room_code, profile_id, week_start desc);
 
 -- ---------- Row Level Security (ON for every table) ----------
+-- IMPORTANT: tables created by raw SQL do NOT auto-grant privileges to
+-- the anon role. Without the GRANTs below every query fails with
+-- HTTP 401 "permission denied for table <name>" even though RLS
+-- policies exist. This was the 2026-11-23 live bug (empty meal cards
+-- + "周总结加载失败：[object Object]").
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to anon, authenticated;
+grant usage, select on all sequences in schema public to anon, authenticated;
+alter default privileges in schema public grant select, insert, update, delete on tables to anon, authenticated;
+
 alter table public.profiles enable row level security;
 alter table public.meal_plans enable row level security;
 alter table public.food_items enable row level security;
